@@ -109,6 +109,14 @@ export default function PokedexScreen() {
 
   return (
     <View style={styles.container}>
+
+      <TouchableOpacity
+        style={styles.settingsBtn}
+        onPress={() => router.push({ pathname: '/settings' })}
+      >
+        <Text style={styles.settingsText}>⚙️</Text>
+      </TouchableOpacity>
+
       <TextInput
         placeholder="Cerca Pokémon..."
         placeholderTextColor="#888"
@@ -140,10 +148,7 @@ export default function PokedexScreen() {
 
           return (
             <TouchableOpacity
-              style={[
-                styles.card,
-                owned && styles.ownedCard,
-              ]}
+              style={[styles.card, owned && styles.ownedCard]}
               onPress={async () => {
                 await playClick()
                 router.push(`/pokemon/${item.id}?name=${item.name}&sprite=${item.sprite}`)
@@ -167,18 +172,62 @@ export default function PokedexScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1e2a38', paddingTop: 50 },
-  searchBar: { backgroundColor: '#2b3a4d', margin: 12, padding: 12, borderRadius: 14, color: 'white', fontFamily: 'Nunito_400Regular' },
+
+  settingsBtn: {
+    position: 'absolute',
+    top: 55,
+    right: 18,
+    zIndex: 10,
+  },
+
+  settingsText: {
+    fontSize: 22,
+    color: 'white',
+  },
+
+  searchBar: {
+    backgroundColor: '#2b3a4d',
+    marginHorizontal: 12,
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 14,
+    color: 'white',
+    fontFamily: 'Nunito_400Regular',
+  },
+
   progressBox: { marginHorizontal: 15, marginBottom: 12 },
-  progressText: { color: 'white', marginBottom: 6, fontFamily: 'Nunito_700Bold' },
+
+  progressText: {
+    color: 'white',
+    marginBottom: 6,
+    fontFamily: 'Nunito_700Bold',
+  },
+
   progressBarBg: { height: 12, backgroundColor: '#333', borderRadius: 10, overflow: 'hidden' },
   progressBarFill: { height: '100%', backgroundColor: '#4caf50' },
+
   filterRow: { flexDirection: 'row', justifyContent: 'space-between', marginHorizontal: 15, marginBottom: 10 },
   filterText: { color: 'white', fontFamily: 'Nunito_400Regular' },
+
   card: { flex: 1, alignItems: 'center', margin: 10, padding: 8, borderRadius: 16, backgroundColor: '#2a3747' },
   ownedCard: { borderWidth: 2, borderColor: '#4caf50' },
+
   image: { width: 72, height: 72 },
+
   name: { fontSize: 12, color: 'white', fontFamily: 'Nunito_400Regular' },
+
   shiny: { position: 'absolute', top: 2, right: 6, fontSize: 18 },
-  statsBar: { position: 'absolute', bottom: 0, width: '100%', backgroundColor: '#000', flexDirection: 'row', justifyContent: 'space-around', paddingTop: 18, paddingBottom: 50 },
+
+  statsBar: {
+    position: 'absolute',
+    bottom: 0,
+    width: '100%',
+    backgroundColor: '#000',
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingTop: 18,
+    paddingBottom: 50,
+  },
+
   statText: { color: '#90caf9', fontFamily: 'Nunito_700Bold' },
 })
