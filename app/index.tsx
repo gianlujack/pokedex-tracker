@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { useFocusEffect } from '@react-navigation/native'
 import { Audio } from 'expo-av'
 import { useRouter } from 'expo-router'
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import {
   FlatList,
   Image,
@@ -27,8 +28,13 @@ export default function PokedexScreen() {
 
   useEffect(() => {
     fetchPokemon()
-    loadProgress()
   }, [])
+
+  useFocusEffect(
+    useCallback(() => {
+      loadProgress()
+    }, [])
+  )
 
   const playClick = async () => {
     const { sound } = await Audio.Sound.createAsync(
@@ -37,19 +43,52 @@ export default function PokedexScreen() {
     await sound.playAsync()
   }
 
+  // 🔥 Nomi dove il trattino fa parte del nome vero
+  const realHyphenNames = new Set([
+    'mr-mime','mime-jr','ho-oh','porygon-z','mr-rime','type-null',
+    'jangmo-o','hakamo-o','kommo-o',
+    'tapu-koko','tapu-lele','tapu-bulu','tapu-fini',
+    'great-tusk','scream-tail','brute-bonnet','flutter-mane','slither-wing','sandy-shocks',
+    'iron-treads','iron-bundle','iron-hands','iron-jugulis','iron-moth','iron-thorns',
+    'roaring-moon','walking-wake','iron-valiant',
+    'wo-chien','chien-pao','ting-lu','chi-yu',
+    'gouging-fire','raging-bolt','iron-boulder','iron-crown','iron-leaves',
+  ])
+
   const fetchPokemon = async () => {
     const res = await fetch('https://pokeapi.co/api/v2/pokemon?limit=1025')
     const data = await res.json()
 
     const formatted = data.results.map((p: any, index: number) => {
-      let name = p.name
-      if (name === 'nidoran-m') name = 'Nidoran ♂'
-      else if (name === 'nidoran-f') name = 'Nidoran ♀'
-      else name = name.charAt(0).toUpperCase() + name.slice(1)
+      const rawName = p.name
+      let displayName = rawName
+
+      // Nidoran simboli
+      if (rawName === 'nidoran-m') displayName = 'Nidoran ♂'
+      else if (rawName === 'nidoran-f') displayName = 'Nidoran ♀'
+
+      // Nome con trattino ma fa parte del nome vero
+      else if (realHyphenNames.has(rawName)) {
+        displayName = rawName
+          .split('-')
+          .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join('-')
+      }
+
+      // Forme → togliamo il suffisso
+      else if (rawName.includes('-')) {
+        displayName = rawName.split('-')[0]
+        displayName = displayName.charAt(0).toUpperCase() + displayName.slice(1)
+      }
+
+      // Nome normale
+      else {
+        displayName = rawName.charAt(0).toUpperCase() + rawName.slice(1)
+      }
 
       return {
         id: index + 1,
-        name,
+        name: displayName,
         sprite: `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${index + 1}.png`,
       }
     })
@@ -172,62 +211,20 @@ export default function PokedexScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1e2a38', paddingTop: 50 },
-
-  settingsBtn: {
-    position: 'absolute',
-    top: 55,
-    right: 18,
-    zIndex: 10,
-  },
-
-  settingsText: {
-    fontSize: 22,
-    color: 'white',
-  },
-
-  searchBar: {
-    backgroundColor: '#2b3a4d',
-    marginHorizontal: 12,
-    marginBottom: 12,
-    padding: 12,
-    borderRadius: 14,
-    color: 'white',
-    fontFamily: 'Nunito_400Regular',
-  },
-
+  settingsBtn: { position: 'absolute', top: 55, right: 18, zIndex: 10 },
+  settingsText: { fontSize: 22, color: 'white' },
+  searchBar: { backgroundColor: '#2b3a4d', marginHorizontal: 12, marginBottom: 12, padding: 12, borderRadius: 14, color: 'white', fontFamily: 'Nunito_400Regular' },
   progressBox: { marginHorizontal: 15, marginBottom: 12 },
-
-  progressText: {
-    color: 'white',
-    marginBottom: 6,
-    fontFamily: 'Nunito_700Bold',
-  },
-
+  progressText: { color: 'white', marginBottom: 6, fontFamily: 'Nunito_700Bold' },
   progressBarBg: { height: 12, backgroundColor: '#333', borderRadius: 10, overflow: 'hidden' },
   progressBarFill: { height: '100%', backgroundColor: '#4caf50' },
-
   filterRow: { flexDirection: 'row', justifyContent: 'space-between', marginHorizontal: 15, marginBottom: 10 },
   filterText: { color: 'white', fontFamily: 'Nunito_400Regular' },
-
   card: { flex: 1, alignItems: 'center', margin: 10, padding: 8, borderRadius: 16, backgroundColor: '#2a3747' },
   ownedCard: { borderWidth: 2, borderColor: '#4caf50' },
-
   image: { width: 72, height: 72 },
-
   name: { fontSize: 12, color: 'white', fontFamily: 'Nunito_400Regular' },
-
   shiny: { position: 'absolute', top: 2, right: 6, fontSize: 18 },
-
-  statsBar: {
-    position: 'absolute',
-    bottom: 0,
-    width: '100%',
-    backgroundColor: '#000',
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingTop: 18,
-    paddingBottom: 50,
-  },
-
+  statsBar: { position: 'absolute', bottom: 0, width: '100%', backgroundColor: '#000', flexDirection: 'row', justifyContent: 'space-around', paddingTop: 18, paddingBottom: 50 },
   statText: { color: '#90caf9', fontFamily: 'Nunito_700Bold' },
 })
