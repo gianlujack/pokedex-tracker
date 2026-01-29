@@ -14,7 +14,16 @@ import {
 
 type GameKey = 'home' | 'za' | 'go';
 type DataType = 'owned' | 'shiny';
-type PokemonData = Record<GameKey, { owned: boolean; shiny: boolean }>;
+
+type GameState = { owned: boolean; shiny: boolean };
+type FormState = Record<GameKey, GameState>;
+type PokemonData = { forms: Record<string, FormState> };
+
+const emptyForm = (): FormState => ({
+  home: { owned: false, shiny: false },
+  za: { owned: false, shiny: false },
+  go: { owned: false, shiny: false },
+});
 
 export default function PokemonScreen() {
   const params = useLocalSearchParams();
@@ -22,7 +31,8 @@ export default function PokemonScreen() {
   const idRef = useRef(currentId);
 
   const [pokemonName, setPokemonName] = useState('');
-  const [sprite, setSprite] = useState('');
+  const [forms, setForms] = useState<{ name: string; sprite: string; shiny: string }[]>([]);
+  const [currentForm, setCurrentForm] = useState<string>('');
 
   const slideX = useRef(new Animated.Value(0)).current;
 
@@ -42,47 +52,74 @@ export default function PokemonScreen() {
     const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${id}`);
     const data = await res.json();
 
-    const formattedName =
+    const name =
       data.name === 'nidoran-m'
         ? 'Nidoran ♂'
         : data.name === 'nidoran-f'
         ? 'Nidoran ♀'
         : data.name.charAt(0).toUpperCase() + data.name.slice(1);
 
-    setPokemonName(formattedName);
-    setSprite(data.sprites.front_default);
+    setPokemonName(name);
 
+    const speciesRes = await fetch(data.species.url);
+    const species = await speciesRes.json();
+
+    const formList = await Promise.all(
+      species.varieties.map(async (v: any) => {
+        const r = await fetch(v.pokemon.url);
+        const d = await r.json();
+        return {
+          name: v.pokemon.name,
+          sprite: d.sprites.front_default,
+          shiny: d.sprites.front_shiny,
+        };
+      })
+    );
+
+    setForms(formList);
+
+    // ✅ Forma SEMPRE valida
+    const firstForm = formList[0]?.name;
+    if (firstForm) {
+      setCurrentForm(firstForm);
+      loadSavedState(id, firstForm);
+    }
+  };
+
+  const loadSavedState = async (id: number, formName: string) => {
     const saved = await AsyncStorage.getItem(`pokemon_${id}`);
     if (!saved) return;
 
-    const p: PokemonData = JSON.parse(saved);
-    setHomeOwned(p.home.owned);
-    setZaOwned(p.za.owned);
-    setGoOwned(p.go.owned);
-    setHomeShiny(p.home.shiny);
-    setZaShiny(p.za.shiny);
-    setGoShiny(p.go.shiny);
+    const parsed: PokemonData = JSON.parse(saved);
+    const state = parsed.forms?.[formName] ?? emptyForm();
+
+    setHomeOwned(state.home.owned);
+    setZaOwned(state.za.owned);
+    setGoOwned(state.go.owned);
+    setHomeShiny(state.home.shiny);
+    setZaShiny(state.za.shiny);
+    setGoShiny(state.go.shiny);
   };
 
-  const animateSwitch = (direction: number, nextId: number) => {
-    if (nextId === idRef.current) return;
+  const saveData = async (game: GameKey, type: DataType, value: boolean) => {
+    if (!currentForm) return;
 
-    Animated.timing(slideX, {
-      toValue: direction * -350,
-      duration: 180,
-      useNativeDriver: true,
-    }).start(() => {
-      slideX.setValue(direction * 350);
-      idRef.current = nextId;
-      setCurrentId(nextId);
+    const saved = await AsyncStorage.getItem(`pokemon_${currentId}`);
+    const parsed: PokemonData = saved ? JSON.parse(saved) : { forms: {} };
 
-      Animated.timing(slideX, {
-        toValue: 0,
-        duration: 220,
-        useNativeDriver: true,
-      }).start();
-    });
+    const formState = parsed.forms[currentForm] ?? emptyForm();
+
+    if (type === 'shiny' && value) formState[game].owned = true;
+    if (type === 'owned' && !value) formState[game].shiny = false;
+
+    formState[game][type] = value;
+    parsed.forms[currentForm] = formState;
+
+    await AsyncStorage.setItem(`pokemon_${currentId}`, JSON.stringify(parsed));
   };
+
+  const activeForm = forms.find((f) => f.name === currentForm);
+  const isShiny = homeShiny || zaShiny || goShiny;
 
   const panResponder = useRef(
     PanResponder.create({
@@ -90,87 +127,79 @@ export default function PokemonScreen() {
         Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy),
       onPanResponderRelease: (_, g) => {
         const id = idRef.current;
-
-        if (g.dx > 35 && id > 1) animateSwitch(-1, id - 1);
-        else if (g.dx < -35 && id < 1025) animateSwitch(1, id + 1);
+        if (g.dx > 35 && id > 1) setCurrentId(id - 1);
+        else if (g.dx < -35 && id < 1025) setCurrentId(id + 1);
       },
     })
   ).current;
 
-  const saveData = async (game: GameKey, type: DataType, value: boolean) => {
-    const current: PokemonData = {
-      home: { owned: homeOwned, shiny: homeShiny },
-      za: { owned: zaOwned, shiny: zaShiny },
-      go: { owned: goOwned, shiny: goShiny },
-    };
-
-    if (type === 'shiny' && value) current[game].owned = true;
-    if (type === 'owned' && !value) current[game].shiny = false;
-
-    current[game][type] = value;
-    await AsyncStorage.setItem(`pokemon_${currentId}`, JSON.stringify(current));
-  };
-
-  const Toggle = ({ label, value, setValue, game, type }: any) => (
+  const Toggle = ({ label, value, setValue, game, type, disabled = false }: any) => (
     <TouchableOpacity
-      style={[styles.toggle, value && styles.toggleActive]}
+      style={[styles.toggle, value && styles.toggleActive, disabled && styles.toggleDisabled]}
+      disabled={disabled}
       onPress={() => {
         const newVal = !value;
         setValue(newVal);
         saveData(game, type, newVal);
       }}
     >
-      <Text style={styles.toggleText}>{label}</Text>
+      <Text style={[styles.toggleText, disabled && styles.toggleTextDisabled]}>{label}</Text>
     </TouchableOpacity>
   );
 
   return (
     <>
-      <Stack.Screen
-        options={{
-          headerStyle: { backgroundColor: '#000' },
-          headerTintColor: '#fff',
-          headerTitle: '',
-          headerShadowVisible: false,
-        }}
-      />
+      <Stack.Screen options={{ headerStyle: { backgroundColor: '#000' }, headerTintColor: '#fff', headerTitle: '' }} />
 
-      <Animated.View
-        {...panResponder.panHandlers}
-        style={[styles.wrapper, { transform: [{ translateX: slideX }] }]}
-      >
-        <ScrollView
-          style={styles.container}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          bounces
-        >
+      <Animated.View {...panResponder.panHandlers} style={[styles.wrapper, { transform: [{ translateX: slideX }] }]}>
+        <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 80 }}>
+
           <View style={styles.header}>
             <Text style={styles.dexNumber}>#{currentId}</Text>
             <Text style={styles.title}>{pokemonName}</Text>
           </View>
 
+          {/* ✅ FORME VISIBILI */}
+          <View style={styles.formSelector}>
+            {forms.map((f) => (
+              <TouchableOpacity
+                key={f.name}
+                onPress={() => {
+                  setCurrentForm(f.name);
+                  loadSavedState(currentId, f.name);
+                }}
+              >
+                {f.sprite && (
+                  <Image source={{ uri: f.sprite }} style={[styles.formIcon, currentForm === f.name && styles.formActive]} />
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+
           <View style={styles.screen}>
-            {sprite && <Image source={{ uri: sprite }} style={styles.sprite} />}
+            {activeForm?.sprite && (
+              <Image source={{ uri: isShiny ? activeForm.shiny : activeForm.sprite }} style={styles.sprite} />
+            )}
           </View>
 
           <View style={styles.panel}>
             <Text style={styles.panelTitle}>Pokémon HOME</Text>
             <Toggle label="Registrato" value={homeOwned} setValue={setHomeOwned} game="home" type="owned" />
-            <Toggle label="Shiny ✨" value={homeShiny} setValue={setHomeShiny} game="home" type="shiny" />
+            <Toggle label="Shiny ✨" value={homeShiny} setValue={setHomeShiny} game="home" type="shiny" disabled={!homeOwned} />
           </View>
 
           <View style={styles.panel}>
             <Text style={styles.panelTitle}>Leggende Z-A</Text>
             <Toggle label="Registrato" value={zaOwned} setValue={setZaOwned} game="za" type="owned" />
-            <Toggle label="Shiny ✨" value={zaShiny} setValue={setZaShiny} game="za" type="shiny" />
+            <Toggle label="Shiny ✨" value={zaShiny} setValue={setZaShiny} game="za" type="shiny" disabled={!zaOwned} />
           </View>
 
           <View style={styles.panel}>
             <Text style={styles.panelTitle}>Pokémon GO</Text>
             <Toggle label="Registrato" value={goOwned} setValue={setGoOwned} game="go" type="owned" />
-            <Toggle label="Shiny ✨" value={goShiny} setValue={setGoShiny} game="go" type="shiny" />
+            <Toggle label="Shiny ✨" value={goShiny} setValue={setGoShiny} game="go" type="shiny" disabled={!goOwned} />
           </View>
+
         </ScrollView>
       </Animated.View>
     </>
@@ -180,41 +209,19 @@ export default function PokemonScreen() {
 const styles = StyleSheet.create({
   wrapper: { flex: 1 },
   container: { flex: 1, backgroundColor: '#d32f2f', padding: 15 },
-
-  scrollContent: {
-    paddingBottom: 50,
-  },
-
   header: { alignItems: 'center', marginBottom: 10 },
-  dexNumber: { color: 'white', fontSize: 18 },
-  title: { color: 'white', fontSize: 26, fontWeight: 'bold' },
-
-  screen: {
-    backgroundColor: '#000',
-    borderRadius: 15,
-    padding: 15,
-    alignItems: 'center',
-    marginVertical: 15,
-  },
-
+  dexNumber: { color: 'white', fontSize: 18, fontFamily: 'Nunito_700Bold' },
+  title: { color: 'white', fontSize: 26, fontFamily: 'Nunito_700Bold' },
+  screen: { backgroundColor: '#000', borderRadius: 15, padding: 15, alignItems: 'center', marginVertical: 15 },
   sprite: { width: 160, height: 160 },
-
-  panel: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 15,
-  },
-
-  panelTitle: { fontWeight: 'bold', marginBottom: 8 },
-
-  toggle: {
-    backgroundColor: '#333',
-    padding: 10,
-    borderRadius: 8,
-    marginVertical: 4,
-  },
-
+  formSelector: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', marginVertical: 10 },
+  formIcon: { width: 54, height: 54, margin: 4 },
+  formActive: { borderWidth: 2, borderColor: '#fff', borderRadius: 8 },
+  panel: { backgroundColor: 'white', borderRadius: 12, padding: 12, marginBottom: 15 },
+  panelTitle: { fontWeight: 'bold', marginBottom: 8, fontFamily: 'Nunito_700Bold' },
+  toggle: { backgroundColor: '#333', padding: 10, borderRadius: 8, marginVertical: 4 },
   toggleActive: { backgroundColor: '#4caf50' },
-  toggleText: { color: 'white', textAlign: 'center' },
+  toggleDisabled: { backgroundColor: '#777', opacity: 0.4 },
+  toggleText: { color: 'white', textAlign: 'center', fontFamily: 'Nunito_400Regular' },
+  toggleTextDisabled: { color: '#ddd' },
 });
