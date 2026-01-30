@@ -1,22 +1,23 @@
 {
   "expo": {
-    "name": "pokedex-tracker",
-    "slug": "pokedex-tracker",
+    "name": "GO-Tracker",
+    "slug": "go-tracker",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "pokedextracker",
+    "scheme": "gotracker",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.gianlujack.gotracker"
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/icon.png"
       },
-      "package": "com.gianlujack.pokedextracker",
+      "package": "com.gianlujack.gotracker",
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
