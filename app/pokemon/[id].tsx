@@ -15,10 +15,16 @@ import {
 type GameState = { owned: boolean; shiny: boolean };
 type PokemonData = { forms: Record<string, GameState> };
 
-const emptyForm = (): GameState => ({
-  owned: false,
-  shiny: false,
-});
+const emptyForm = (): GameState => ({ owned: false, shiny: false });
+
+const typeIT: Record<string,string> = {
+  normal:'Normale', fire:'Fuoco', water:'Acqua', electric:'Elettro', grass:'Erba',
+  ice:'Ghiaccio', fighting:'Lotta', poison:'Veleno', ground:'Terra', flying:'Volante',
+  psychic:'Psico', bug:'Coleottero', rock:'Roccia', ghost:'Spettro', dragon:'Drago',
+  dark:'Buio', steel:'Acciaio', fairy:'Folletto'
+};
+
+const ALL_TYPES = Object.keys(typeIT);
 
 const realHyphenNames = new Set([
   'mr-mime','mime-jr','ho-oh','porygon-z','mr-rime','type-null',
@@ -32,13 +38,11 @@ const realHyphenNames = new Set([
 ]);
 
 const cleanPokemonName = (raw: string) => {
-  if (realHyphenNames.has(raw)) {
-    return raw.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('-');
-  }
+  if (realHyphenNames.has(raw)) return raw.split('-').map(w => w[0].toUpperCase()+w.slice(1)).join('-');
   if (raw === 'nidoran-m') return 'Nidoran ♂';
   if (raw === 'nidoran-f') return 'Nidoran ♀';
   const base = raw.split('-')[0];
-  return base.charAt(0).toUpperCase() + base.slice(1);
+  return base[0].toUpperCase()+base.slice(1);
 };
 
 export default function PokemonScreen() {
@@ -50,15 +54,16 @@ export default function PokemonScreen() {
   const [forms, setForms] = useState<{ name: string; sprite: string; shiny: string }[]>([]);
   const [currentForm, setCurrentForm] = useState('');
 
-  const slideX = useRef(new Animated.Value(0)).current;
-
   const [owned, setOwned] = useState(false);
   const [shiny, setShiny] = useState(false);
 
-  const resetStates = () => {
-    setOwned(false);
-    setShiny(false);
-  };
+  const [types, setTypes] = useState<string[]>([]);
+  const [weaknesses, setWeaknesses] = useState<string[]>([]);
+  const [resistances, setResistances] = useState<string[]>([]);
+
+  const slideX = useRef(new Animated.Value(0)).current;
+
+  const resetStates = () => { setOwned(false); setShiny(false); };
 
   useEffect(() => {
     idRef.current = currentId;
@@ -70,10 +75,38 @@ export default function PokemonScreen() {
     if (currentForm) {
       resetStates();
       loadSavedState(currentId, currentForm);
+      loadFormTypes(currentForm);
     }
   }, [currentForm]);
 
-  const loadPokemon = async (id: number) => {
+  const loadFormTypes = async (formName: string) => {
+    const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${formName}`);
+    const data = await res.json();
+
+    const currentTypes: string[] = data.types.map((t:any)=>t.type.name);
+    setTypes(currentTypes);
+
+    const multipliers: Record<string,number> = {};
+    ALL_TYPES.forEach(t=>multipliers[t]=1);
+
+    const typeDatas = await Promise.all(
+      currentTypes.map(async t=>{
+        const r = await fetch(`https://pokeapi.co/api/v2/type/${t}`);
+        return await r.json();
+      })
+    );
+
+    for(const td of typeDatas){
+      td.damage_relations.double_damage_from.forEach((d:any)=>multipliers[d.name]*=2);
+      td.damage_relations.half_damage_from.forEach((d:any)=>multipliers[d.name]*=0.5);
+      td.damage_relations.no_damage_from.forEach((d:any)=>multipliers[d.name]=0);
+    }
+
+    setWeaknesses(ALL_TYPES.filter(t=>multipliers[t]>1));
+    setResistances(ALL_TYPES.filter(t=>multipliers[t]<1));
+  };
+
+  const loadPokemon = async (id:number)=>{
     const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${id}`);
     const data = await res.json();
     setPokemonName(cleanPokemonName(data.name));
@@ -82,77 +115,66 @@ export default function PokemonScreen() {
     const species = await speciesRes.json();
 
     const formList = await Promise.all(
-      species.varieties.map(async (v: any) => {
+      species.varieties.map(async(v:any)=>{
         const r = await fetch(v.pokemon.url);
         const d = await r.json();
-        return { name: v.pokemon.name, sprite: d.sprites.front_default, shiny: d.sprites.front_shiny };
+        return {name:v.pokemon.name,sprite:d.sprites.front_default,shiny:d.sprites.front_shiny};
       })
     );
 
     setForms(formList);
-    const firstForm = formList[0]?.name;
-    if (firstForm) setCurrentForm(firstForm);
+    if(formList[0]) setCurrentForm(formList[0].name);
   };
 
-  const loadSavedState = async (id: number, formName: string) => {
+  const loadSavedState = async(id:number,formName:string)=>{
     const saved = await AsyncStorage.getItem(`pokemon_${id}`);
-    if (!saved) return;
-    const parsed: PokemonData = JSON.parse(saved);
-    const state = parsed.forms?.[formName] ?? emptyForm();
+    if(!saved) return;
+    const parsed:PokemonData = JSON.parse(saved);
+    const state = parsed.forms?.[formName]??emptyForm();
     setOwned(state.owned);
     setShiny(state.shiny);
   };
 
-  const saveData = async (type: 'owned' | 'shiny', value: boolean) => {
-    if (!currentForm) return;
-
+  const saveData = async(type:'owned'|'shiny',value:boolean)=>{
+    if(!currentForm) return;
     const saved = await AsyncStorage.getItem(`pokemon_${currentId}`);
-    const parsed: PokemonData = saved ? JSON.parse(saved) : { forms: {} };
-
-    const formState = parsed.forms[currentForm] ?? emptyForm();
-
-    if (type === 'shiny' && value) formState.owned = true;
-    if (type === 'owned' && !value) formState.shiny = false;
-
-    formState[type] = value;
-    parsed.forms[currentForm] = formState;
-
-    await AsyncStorage.setItem(`pokemon_${currentId}`, JSON.stringify(parsed));
+    const parsed:PokemonData = saved?JSON.parse(saved):{forms:{}};
+    const formState = parsed.forms[currentForm]??emptyForm();
+    if(type==='shiny'&&value) formState.owned=true;
+    if(type==='owned'&&!value) formState.shiny=false;
+    formState[type]=value;
+    parsed.forms[currentForm]=formState;
+    await AsyncStorage.setItem(`pokemon_${currentId}`,JSON.stringify(parsed));
   };
 
-  const activeForm = forms.find(f => f.name === currentForm);
+  const activeForm = forms.find(f=>f.name===currentForm);
 
   const panResponder = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) =>
-        Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy),
-      onPanResponderRelease: (_, g) => {
-        const id = idRef.current;
-        if (g.dx > 35 && id > 1) setCurrentId(id - 1);
-        else if (g.dx < -35 && id < 1025) setCurrentId(id + 1);
-      },
+      onMoveShouldSetPanResponder:(_,g)=>Math.abs(g.dx)>12&&Math.abs(g.dx)>Math.abs(g.dy),
+      onPanResponderRelease:(_,g)=>{
+        const id=idRef.current;
+        if(g.dx>35&&id>1)setCurrentId(id-1);
+        else if(g.dx<-35&&id<1025)setCurrentId(id+1);
+      }
     })
   ).current;
 
-  const Toggle = ({ label, value, setValue, type, disabled = false }: any) => (
+  const Toggle=({label,value,setValue,type,disabled=false}:any)=>(
     <TouchableOpacity
-      style={[styles.toggle, value && styles.toggleActive, disabled && styles.toggleDisabled]}
+      style={[styles.toggle,value&&styles.toggleActive,disabled&&styles.toggleDisabled]}
       disabled={disabled}
-      onPress={() => {
-        const newVal = !value;
-        setValue(newVal);
-        saveData(type, newVal);
-      }}
+      onPress={()=>{const v=!value;setValue(v);saveData(type,v);}}
     >
       <Text style={styles.toggleText}>{label}</Text>
     </TouchableOpacity>
   );
 
-  return (
+  return(
     <>
-      <Stack.Screen options={{ headerStyle: { backgroundColor: '#000' }, headerTintColor: '#fff', headerTitle: '' }} />
+      <Stack.Screen options={{headerStyle:{backgroundColor:'#000'},headerTintColor:'#fff',headerTitle:''}}/>
       <Animated.View {...panResponder.panHandlers} style={styles.wrapper}>
-        <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 80 }}>
+        <ScrollView style={styles.container} contentContainerStyle={{paddingBottom:80}}>
 
           <View style={styles.header}>
             <Text style={styles.dexNumber}>#{currentId}</Text>
@@ -160,23 +182,37 @@ export default function PokemonScreen() {
           </View>
 
           <View style={styles.formSelector}>
-            {forms.map(f => (
-              <TouchableOpacity key={f.name} onPress={() => setCurrentForm(f.name)}>
-                {f.sprite && <Image source={{ uri: f.sprite }} style={[styles.formIcon, currentForm === f.name && styles.formActive]} />}
+            {forms.map(f=>(
+              <TouchableOpacity key={f.name} onPress={()=>setCurrentForm(f.name)}>
+                {f.sprite&&<Image source={{uri:f.sprite}} style={[styles.formIcon,currentForm===f.name&&styles.formActive]}/>}
               </TouchableOpacity>
             ))}
           </View>
 
           <View style={styles.screen}>
-            {activeForm?.sprite && (
-              <Image source={{ uri: shiny ? activeForm.shiny : activeForm.sprite }} style={styles.sprite} />
-            )}
+            {activeForm?.sprite&&<Image source={{uri:shiny?activeForm.shiny:activeForm.sprite}} style={styles.sprite}/>}
+          </View>
+
+          <View style={styles.typesBox}>
+            <Text style={styles.typeTitle}>Tipo</Text>
+            {types.map(t=><Text key={t} style={styles.typeText}>{typeIT[t]}</Text>)}
+          </View>
+
+          <View style={styles.bottomBattleBox}>
+            <View style={styles.bottomCol}>
+              <Text style={styles.typeTitle}>Debolezza</Text>
+              {weaknesses.map(w=><Text key={w} style={styles.weakText}>{typeIT[w]}</Text>)}
+            </View>
+            <View style={styles.bottomCol}>
+              <Text style={styles.typeTitle}>Resistenza</Text>
+              {resistances.map(r=><Text key={r} style={styles.resistText}>{typeIT[r]}</Text>)}
+            </View>
           </View>
 
           <View style={styles.panel}>
             <Text style={styles.panelTitle}>Pokémon GO</Text>
-            <Toggle label="Registrato" value={owned} setValue={setOwned} type="owned" />
-            <Toggle label="Shiny ✨" value={shiny} setValue={setShiny} type="shiny" disabled={!owned} />
+            <Toggle label="Registrato" value={owned} setValue={setOwned} type="owned"/>
+            <Toggle label="Shiny ✨" value={shiny} setValue={setShiny} type="shiny" disabled={!owned}/>
           </View>
 
         </ScrollView>
@@ -185,7 +221,7 @@ export default function PokemonScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles=StyleSheet.create({
   wrapper:{flex:1},
   container:{flex:1,backgroundColor:'#d32f2f',padding:15},
   header:{alignItems:'center',marginBottom:10},
@@ -196,6 +232,13 @@ const styles = StyleSheet.create({
   formSelector:{flexDirection:'row',flexWrap:'wrap',justifyContent:'center',marginVertical:10},
   formIcon:{width:54,height:54,margin:4},
   formActive:{borderWidth:2,borderColor:'#fff',borderRadius:8},
+  typesBox:{alignItems:'center',marginVertical:6},
+  typeTitle:{color:'white',fontWeight:'bold',fontFamily:'Nunito_700Bold'},
+  typeText:{color:'#fff',fontFamily:'Nunito_400Regular'},
+  weakText:{color:'#ffeb3b',fontFamily:'Nunito_400Regular'},
+  resistText:{color:'#81d4fa',fontFamily:'Nunito_400Regular'},
+  bottomBattleBox:{flexDirection:'row',justifyContent:'space-between',marginVertical:8},
+  bottomCol:{flex:1,alignItems:'center'},
   panel:{backgroundColor:'white',borderRadius:12,padding:12,marginBottom:15},
   panelTitle:{fontWeight:'bold',marginBottom:8,fontFamily:'Nunito_700Bold'},
   toggle:{backgroundColor:'#333',padding:10,borderRadius:8,marginVertical:4},
